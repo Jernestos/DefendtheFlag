@@ -1,0 +1,300 @@
+#!/bin/bash
+
+# stops processing in case of failure
+set -euo pipefail
+
+# prints each line executed
+set -x
+
+pwd
+
+echo "Your solution goes here"
+echo "********************************"
+echo "TASK 1"
+echo "********************************"
+#Task 1
+#Error: Temporary failure in name resolution
+#Task 1 - Notes
+#Add nameserver 8.8.8.8 to resolv.conf -> did not work
+#Firewall:
+#	sudo iptables -L -> no restrictions/no rules
+#	sudo iptables -S -> no restrictions/no rules
+#	netstat -lntu/sudo netstat -tulpn -> no port for 43 (lookup) and 53 (resolving) open
+#Resolver buggy?:
+#	sudo systemctl status systemd-resolved.service -> disabled and dead
+	#	sudo systemctl start systemd-resolved.service -> doesn't work
+	#	sudo systemctl enable systemd-resolved.service; sudo systemctl start systemd-resolved.service -> doesn't work
+	#	https://www.linuxquestions.org/questions/linux-networking-3/ssh-issues-after-setting-up-iptables-4175501493/
+		#	nftables supersedes iptables -> conflict potential when both are running/active/activated -> hypothesis: they clash
+			#	nftables command installed on VM: https://wiki.nftables.org/wiki-nftables/index.php/Quick_reference-nftables_in_10_minutes#Tables
+			#	sudo nft list tables -> two filter tables but they accept everything.
+			#	removing iptables (https://serverfault.com/questions/200635/best-way-to-clear-all-iptables-rules) or flushing them sudo iptables -F does not work
+			#	removing nftables with sudo nft flush ruleset (https://unix.stackexchange.com/questions/562850/nftables-remove-all-rules-in-chain) -> works
+
+#https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/configuring_and_managing_networking/getting-started-with-nftables_configuring-and-managing-networking
+#sudo systemctl disable --now iptables
+sudo systemctl disable --now nftables
+
+#Then a portscan shows this
+#Starting Nmap 7.40 ( https://nmap.org )
+#Nmap scan report for 178.128.205.64
+#Host is up (0.17s latency).
+#Not shown: 95 closed ports
+#PORT     STATE    SERVICE
+#22/tcp   open     ssh
+#25/tcp   filtered smtp
+#80/tcp   open     http
+#443/tcp  open     https
+#5432/tcp open     postgresql
+
+echo "********************************"
+echo "TASK 2"
+echo "********************************"
+		
+#Task 2
+#https://www.answertopia.com/ubuntu/basic-ubuntu-firewall-configuration-with-firewalld/
+#https://ubuntu.com/server/docs/security-firewall
+
+#Get IP address of grader.dtf.netsec.inf.ethz.ch
+#https://unix.stackexchange.com/questions/20784/how-can-i-resolve-a-hostname-to-an-ip-address-in-a-bash-script
+#install firewalld
+#sudo apt install firewalld -y
+#
+##start
+#sudo systemctl enable firewalld
+#sudo systemctl start firewalld
+
+#get ip address
+#ip_address=getent hosts grader.dtf.netsec.inf.ethz.ch | awk '{ print $1 }'
+#yields 129.132.121.162
+
+#https://serverfault.com/questions/684602/how-to-open-port-for-a-specific-ip-address-with-firewall-cmd-on-centos
+#sudo firewall-cmd --remove-port=5432/tcp
+#sudo firewall-cmd --reload
+#firewall-cmd --permanent --zone=public --add-rich-rule='
+#	rule family="ipv4"
+#	source address="129.132.121.162"
+#	port protocol="tcp" port="5432" accept'
+#firewall-cmd --reload
+#doesnt work -> 5432/tcp not in public
+
+#sudo firewall-cmd --new-zone=special --permanent
+#sudo firewall-cmd --reload
+#sudo firewall-cmd --zone=special --add-source=129.132.121.162
+#sudo firewall-cmd --zone=special --add-port=5432/tcp
+#doesn't work
+#Error: COMMAND_FAILED: '/usr/sbin/iptables-restore -w -n' failed: iptables-restore v1.8.2 (nf_tables): 
+#line 4: RULE_REPLACE failed (No such file or directory): rule in chain INPUT
+#line 4: RULE_REPLACE failed (No such file or directory): rule in chain OUTPUT
+# -> This is a bug with debian (https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=914694)
+
+#use ufw (https://ubuntu.com/server/docs/security-firewall)
+
+#get ip address
+#ip_address=getent hosts grader.dtf.netsec.inf.ethz.ch | awk '{ print $1 }'
+#yields 129.132.121.162
+
+#sudo apt-get install ufw -y
+###https://stackoverflow.com/questions/226703/how-do-i-prompt-for-yes-no-cancel-input-in-a-linux-shell-script
+##https://www.digitalocean.com/community/tutorials/ufw-essentials-common-firewall-rules-and-commands
+#
+##https://askubuntu.com/questions/448836/how-do-i-with-ufw-deny-all-outgoing-ports-excepting-the-ones-i-need
+#sudo ufw allow in 22,80,443/tcp
+#sudo ufw allow in 43,53/udp
+##sudo ufw allow out 22
+##sudo ufw allow out 25
+##sudo ufw allow out 80
+##sudo ufw allow out 433
+##sudo ufw allow in 22
+##sudo ufw allow in 25
+##sudo ufw allow in 80
+##sudo ufw allow in 433
+#sudo ufw allow in from 129.132.121.162 to any port 5432
+#
+#echo "y" | sudo ufw enable
+#sudo systemctl start ufw.service 
+#From before, open all these ports
+#22/tcp   open     ssh
+#25/tcp   filtered smtp
+#80/tcp   open     http
+#443/tcp  open     https
+#5432/tcp open     postgresql
+
+#nmap -F 178.128.205.64 doesn't return anything useful
+
+#https://www.digitalocean.com/community/tutorials/iptables-essentials-common-firewall-rules-and-commands
+#https://serverfault.com/questions/183461/how-do-i-allow-outgoing-connections-via-iptables
+sudo iptables -A INPUT -p tcp -s 129.132.121.162 --dport 5432 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 5432 -j REJECT
+sudo iptables -A OUTPUT -p tcp -d 129.132.121.162 --dport 5432 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+sudo iptables -A OUTPUT -p tcp --dport 22 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 25 -j ACCEPT
+sudo iptables -A OUTPUT -p tcp --dport 25 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 43 -j ACCEPT
+sudo iptables -A OUTPUT -p tcp --dport 43 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 53 -j ACCEPT
+sudo iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+sudo iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+sudo iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
+
+echo "********************************"
+echo "TASK 3"
+echo "********************************"
+
+#Task 3
+#https://blog.detectify.com/2020/11/10/common-nginx-misconfigurations/
+#cd /etc/nginx
+#cat nginx.conf -> focus on anything HTTP related (from task description)
+#Files that could be of interest
+#include /etc/nginx/mime.types -> nothing of interst here
+#access_log /var/log/nginx/access.log; -> correct HTTP GET format; get request from root path?
+#error_log /var/log/nginx/error.log; -> no content
+# gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+#include /etc/nginx/conf.d/*.conf; -> nothing in folder
+#include /etc/nginx/sites-enabled/*;
+
+#cat company-app.conf yields
+#server {
+#	listen 1234;
+#	listen [::]:1234;
+#
+#	root /var/www/html;
+#
+#	server_name _;
+#
+#	location / {
+#		# First attempt to serve request as file, then
+#		# as directory, then fall back to displaying a 404.
+#		try_files $uri $uri/ =404;
+#        autoindex on;
+#	}
+#
+#    location /company/ {
+#        rewrite ^/company/(.*)$ $1;
+#    }
+#
+#    location /app { compare with other location -> its of the form /[something]/ -> missing a slash
+#        autoindex on;
+#        alias /var/www/app/;
+#    }
+#}
+#
+#cat default-site.conf
+
+#server {
+#	listen 80 default_server;
+#	listen [::]:80 default_server;
+#
+#	server_name _;
+#
+#	root /var/www/html;
+#
+#	location / {
+#		autoindex on;
+#	}
+#
+#	location /company/ {
+#		proxy_pass http://localhost:1234/;
+#	}
+#}
+#
+#
+#server {
+#	listen 443 ssl default_server;
+#
+#	server_name _;
+#
+#	root /var/www/html;
+#
+#	# So-called snakeoil certificates are present on most modern
+#	# systems and may be used as TLS certificates. Note that snakeoil
+#	# certificates are only self-signed.
+#	ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+#	ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+#
+#	location / {
+#		autoindex on;
+#	}
+#
+#	location /company/ {
+#		proxy_pass http://localhost:1234/;
+#	}
+#}
+
+#Fix: task3_fix is same file but with the fix. Overwrite content
+#Job for nginx.service failed because the control process exited with error code.
+#See "systemctl status nginx.service" and "journalctl -xe" for details. -> stop then overwrite
+
+#doesn't work -> the task3_fix file differs somehow from the original file on multiple locations
+#sudo systemctl stop nginx.service
+#sudo chmod 666 /etc/nginx/sites-enabled/company-app.conf
+#sudo echo task3_fix > /etc/nginx/sites-enabled/company-app.conf
+#sudo chmod 644 /etc/nginx/sites-enabled/company-app.conf
+#sudo systemctl start nginx.service
+#https://linuxhint.com/replace_string_in_file_bash/
+sudo systemctl stop nginx.service
+sudo sed -i 's/n \/app/n \/app\//' /etc/nginx/sites-enabled/company-app.conf
+sudo systemctl start nginx.service
+
+
+
+echo "********************************"
+echo "TASK 5"
+echo "********************************"
+
+#Task 5
+#https://www.server-world.info/en/note?os=Debian_10&p=mail&f=6
+#https://stackoverflow.com/questions/16956810/how-to-find-all-files-containing-specific-text-string-on-linux
+#https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/SSL-on-amazon-linux-2.html
+#sudo grep -rnw ./etc/ -e 'TLS' yields a list of files that contains "TLS". Knowing from task 3 that we run a nginx webserver, we only have to look at files that have something to do with nginx.
+#this yieds /etc/nginx/sites-enabled/default-site.conf -> nothing about TLS (except port number)
+#sudo grep -rnw ./etc/ -ei 'TLS' (for case insensitive) yields a longer list
+#https://hackernoon.com/how-properly-configure-nginx-server-for-tls-sg1d3udt
+#https://docs.nginx.com/nginx/admin-guide/security-controls/terminating-ssl-http/
+#search nginx configruation file
+#sudo find . -mindepth 1 -name '*nginx*conf'
+#sudo grep -ri "tls" .
+#sudo grep -ri "tls" . | grep "nginx"
+#http://nginx.org/en/docs/http/ngx_http_ssl_module.html
+#so we get two files 
+#./etc/nginx/sites-enabled/default-site.conf -> already seen
+#./etc/nginx/nginx.conf
+
+#use tlsv1.3 only (secure as taught in lecture)
+#https://serverfault.com/questions/997614/setting-ssl-prefer-server-ciphers-directive-in-nginx-config
+#links suggeests to set ssl_prefer_server_ciphers to off
+#same reason why task 3 did not work with this ansatz
+#sudo chmod 666 /etc/nginx/nginx.conf
+#sudo echo task5_fix > /etc/nginx/nginx.conf
+#sudo chmod 644 /etc/nginx/nginx.conf
+#sudo systemctl restart nginx
+sudo systemctl stop nginx.service
+sudo sed -i 's/TLSv1 TLSv1.1 TLSv1.2/TLSv1.3/' /etc/nginx/nginx.conf
+sudo sed -i 's/_ciphers on/_ciphers off/' /etc/nginx/nginx.conf
+sudo systemctl start nginx.service
+
+
+
+echo "********************************"
+echo "TASK 4"
+echo "********************************"
+
+#Task 4
+#https://github.com/srvrco/getssl -> contacts acme server 
+#https://www.entrust.com/de/knowledgebase/ssl/how-to-use-acme-to-install-ssl-tls-certificates-in-entrust-certificate-services-apache
+#Google "TLS certificate via ACME" yields in top 3 https://www.sslmarket.ch/ssl/tls-zertifikate-ueber-das-acme-protokoll-auf-linux-erwerben
+#sudo certbot --register-unsafely-without-email --server acme.dtf.netsec.inf.ethz.ch/acme/default/directory -d sitran.student.dtf.netsec.inf.ethz.ch
+
+#https://certbot.eff.org/instructions?ws=nginx&os=debianstretch - how to install certbot
+sudo apt install snapd -y
+sudo snap install core; sudo snap refresh core
+sudo snap install --classic certbot
+sudo ln -s /snap/bin/certbot /usr/bin/certbot
+#sudo certbot certonly --nginx --register-unsafely-without-email #not needed
+#sudo certbot --nginx --register-unsafely-without-email
+sudo certbot --register-unsafely-without-email --server http://acme.dtf.netsec.inf.ethz.ch/acme/default/directory -d sitran.student.dtf.netsec.inf.ethz.ch
+
+
